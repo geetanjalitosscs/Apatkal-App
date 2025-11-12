@@ -1,0 +1,442 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../theme/app_theme.dart';
+import '../widgets/common/app_card.dart';
+import '../providers/wallet_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/navigation_provider.dart';
+import '../providers/notification_provider.dart';
+import '../widgets/common/app_error_dialog.dart';
+import '../models/withdrawal.dart';
+import '../widgets/withdrawal_dialog.dart';
+
+class WalletScreen extends StatefulWidget {
+  const WalletScreen({super.key});
+
+  @override
+  State<WalletScreen> createState() => _WalletScreenState();
+}
+
+class _WalletScreenState extends State<WalletScreen> {
+  String _selectedPeriod = 'all';
+  String _selectedStatus = 'all';
+  final List<Map<String, String>> _periods = [
+    {'value': 'all', 'label': 'All'},
+    {'value': 'today', 'label': 'Today'},
+    {'value': 'week', 'label': 'Last 7 Days'},
+    {'value': 'month', 'label': 'This Month'},
+    {'value': 'year', 'label': 'This Year'},
+  ];
+  
+  final List<Map<String, String>> _statusFilters = [
+    {'value': 'all', 'label': 'All Status'},
+    {'value': 'pending', 'label': 'Pending'},
+    {'value': 'completed', 'label': 'Completed'},
+    {'value': 'approved', 'label': 'Approved'},
+    {'value': 'rejected', 'label': 'Rejected'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Load data after the build is complete to avoid setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadWalletData();
+      }
+    });
+  }
+
+  Future<void> _loadWalletData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final walletProvider = Provider.of<WalletProvider>(context, listen: false);
+    
+    if (authProvider.currentUser != null) {
+      await walletProvider.loadWalletData(
+        authProvider.currentUser!.driverIdAsInt,
+        period: _selectedPeriod,
+        status: _selectedStatus,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.backgroundLight,
+      appBar: AppBar(
+        backgroundColor: AppTheme.primaryBlue,
+        elevation: 0,
+        leading: IconButton(
+          onPressed: () {
+            // Navigate back to home screen using NavigationProvider
+            final navigationProvider = Provider.of<NavigationProvider>(context, listen: false);
+            navigationProvider.navigateToHome();
+          },
+          icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+          padding: const EdgeInsets.all(16),
+        ),
+        title: Text(
+          'Wallet',
+          style: AppTheme.heading3.copyWith(color: Colors.white),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: _loadWalletData,
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            padding: const EdgeInsets.all(16),
+          ),
+        ],
+      ),
+      body: Consumer<WalletProvider>(
+        builder: (context, walletProvider, child) {
+          if (walletProvider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (walletProvider.errorMessage != null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Unable to load wallet',
+                    style: GoogleFonts.roboto(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please check your internet connection and try again',
+                    style: GoogleFonts.roboto(
+                      fontSize: 14,
+                      color: Colors.grey[500],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _loadWalletData,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Wallet Balance Card
+                _buildWalletBalanceCard(walletProvider),
+                const SizedBox(height: 16),
+
+                // Action Buttons
+                _buildActionButtons(),
+                const SizedBox(height: 16),
+
+                // Transaction History Section
+                _buildTransactionHistorySection(walletProvider),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildWalletBalanceCard(WalletProvider walletProvider) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Wallet Balance',
+            style: AppTheme.bodyMedium.copyWith(
+              color: AppTheme.neutralGreyLight,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.accentGreen.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Icon(
+                  Icons.account_balance_wallet,
+                  color: AppTheme.accentGreen,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                walletProvider.wallet?.formattedBalance ?? '₹0.00',
+                style: AppTheme.heading1.copyWith(
+                  color: AppTheme.accentGreen,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _showWithdrawalDialog,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTheme.primaryBlue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.account_balance, size: 20),
+            const SizedBox(width: 8),
+            const Text('Withdraw Money'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionHistorySection(WalletProvider walletProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Recent Withdrawals',
+                style: AppTheme.heading3,
+              ),
+            ),
+            _buildPeriodDropdown(),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (walletProvider.filteredWithdrawals.isEmpty)
+          AppCard(
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(Icons.receipt_long, color: AppTheme.neutralGreyLight, size: 48),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No withdrawals found',
+                    style: AppTheme.bodyMedium.copyWith(color: AppTheme.neutralGrey),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ...walletProvider.filteredWithdrawals.map((withdrawal) => _buildWithdrawalCard(withdrawal)).toList(),
+      ],
+    );
+  }
+
+  Widget _buildPeriodDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.neutralGreyLight),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedPeriod,
+          icon: Icon(Icons.keyboard_arrow_down, color: AppTheme.neutralGrey),
+          style: AppTheme.bodyMedium,
+          items: _periods.map((period) {
+            return DropdownMenuItem<String>(
+              value: period['value'],
+              child: Text(period['label']!),
+            );
+          }).toList(),
+          onChanged: (String? newValue) async {
+            if (newValue != null && newValue != _selectedPeriod) {
+              setState(() {
+                _selectedPeriod = newValue;
+              });
+              
+              final walletProvider = Provider.of<WalletProvider>(context, listen: false);
+              await walletProvider.setPeriod(newValue);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWithdrawalCard(Withdrawal withdrawal) {
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.accentRed.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              Icons.account_balance,
+              color: AppTheme.accentRed,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Withdrawal to Bank',
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${withdrawal.bankName} - ${withdrawal.accountHolderName}',
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.neutralGreyLight,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatDateTime(withdrawal.requestedAt),
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.neutralGreyLight,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Status: ${withdrawal.status}',
+                  style: AppTheme.bodySmall.copyWith(
+                    color: _getStatusColor(withdrawal.status),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '-₹${withdrawal.amount.toStringAsFixed(2)}',
+            style: AppTheme.bodyMedium.copyWith(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.accentRed,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return AppTheme.accentOrange;
+      case 'approved':
+        return AppTheme.accentGreen;
+      case 'rejected':
+        return AppTheme.accentRed;
+      default:
+        return AppTheme.neutralGrey;
+    }
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inDays > 0) {
+      return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
+    } else {
+      return 'Just now';
+    }
+  }
+
+
+  void _showWithdrawalDialog() {
+    final walletProvider = Provider.of<WalletProvider>(context, listen: false);
+    
+    if (walletProvider.wallet?.balance == 0 || walletProvider.wallet?.balance == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Insufficient balance for withdrawal'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => WithdrawalDialog(
+        walletBalance: walletProvider.wallet!.balance,
+        onWithdraw: (amount, bankDetails) async {
+          Navigator.of(dialogContext).pop();
+          
+          final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+          final success = await walletProvider.requestWithdrawal(
+            amount: amount,
+            bankAccountNumber: bankDetails['accountNumber']!,
+            bankName: bankDetails['bankName']!,
+            ifscCode: bankDetails['ifscCode']!,
+            accountHolderName: bankDetails['accountHolderName']!,
+            notificationProvider: notificationProvider,
+          );
+          
+          if (success) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Withdrawal is done!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+            _loadWalletData(); // Refresh data
+          } else {
+            if (mounted) {
+              AppErrorDialog.show(context, walletProvider.errorMessage ?? 'Failed to submit withdrawal request');
+            }
+          }
+        },
+      ),
+    );
+  }
+}
