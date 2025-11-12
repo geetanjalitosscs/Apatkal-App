@@ -1,0 +1,177 @@
+class ProfileData {
+  final String driverName;
+  final String driverId;
+  final String email;
+  final String phone;
+  final String address;
+  final String vehicleType;
+  final String vehicleNumber;
+  final double rating;
+  final String aadharPhoto;
+  final String licencePhoto;
+  final String rcPhoto;
+  final String kycStatus;
+  final String createdAt;
+  
+  // Account details
+  final String? accountNumber;
+  final String? bankName;
+  final String? ifscCode;
+  final String? accountHolderName;
+
+  ProfileData({
+    required this.driverName,
+    required this.driverId,
+    required this.email,
+    required this.phone,
+    required this.address,
+    required this.vehicleType,
+    required this.vehicleNumber,
+    required this.rating,
+    required this.aadharPhoto,
+    required this.licencePhoto,
+    required this.rcPhoto,
+    required this.kycStatus,
+    required this.createdAt,
+    this.accountNumber,
+    this.bankName,
+    this.ifscCode,
+    this.accountHolderName,
+  });
+
+  // Helper method to safely get driver ID as integer
+  int get driverIdAsInt {
+    if (driverId.isEmpty) {
+      print('⚠️ ERROR: driverId is empty! Defaulting to 0');
+      return 0; // Return 0 instead of 1 to make it obvious there's an issue
+    }
+    try {
+      final parsed = int.parse(driverId.trim());
+      if (parsed <= 0) {
+        print('⚠️ ERROR: Invalid driver ID value: $parsed');
+        return 0;
+      }
+      return parsed;
+    } catch (e) {
+      print('❌ ERROR parsing driver ID "$driverId": $e');
+      return 0; // Return 0 instead of 1 to make it obvious there's an issue
+    }
+  }
+
+  // Getter for compatibility
+  String get contact => phone;
+  double get averageRating => rating;
+
+  // Default profile data
+  static ProfileData getDefault() {
+    return ProfileData(
+      driverName: 'Demo Driver',
+      driverId: '1',
+      email: 'driver@demo.com',
+      phone: '9876543210',
+      address: '123, Demo Street, Demo City',
+      vehicleType: 'Sedan',
+      vehicleNumber: 'DL01AB1234',
+      rating: 4.8,
+      aadharPhoto: 'placeholder_aadhar.jpg',
+      licencePhoto: 'placeholder_licence.jpg',
+      rcPhoto: 'placeholder_rc.jpg',
+      kycStatus: 'approved',
+      createdAt: DateTime.now().toIso8601String(),
+      accountNumber: '1234567890',
+      bankName: 'Demo Bank',
+      ifscCode: 'DEMO0001234',
+      accountHolderName: 'Demo Driver',
+    );
+  }
+
+  // Create a copy with updated fields
+  ProfileData copyWith({
+    String? driverName,
+    String? driverId,
+    String? email,
+    String? phone,
+    String? address,
+    String? vehicleType,
+    String? vehicleNumber,
+    double? rating,
+    String? aadharPhoto,
+    String? licencePhoto,
+    String? rcPhoto,
+    String? kycStatus,
+    String? createdAt,
+    String? accountNumber,
+    String? bankName,
+    String? ifscCode,
+    String? accountHolderName,
+  }) {
+    return ProfileData(
+      driverName: driverName ?? this.driverName,
+      driverId: driverId ?? this.driverId,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      address: address ?? this.address,
+      vehicleType: vehicleType ?? this.vehicleType,
+      vehicleNumber: vehicleNumber ?? this.vehicleNumber,
+      rating: rating ?? this.rating,
+      aadharPhoto: aadharPhoto ?? this.aadharPhoto,
+      licencePhoto: licencePhoto ?? this.licencePhoto,
+      rcPhoto: rcPhoto ?? this.rcPhoto,
+      kycStatus: kycStatus ?? this.kycStatus,
+      createdAt: createdAt ?? this.createdAt,
+      accountNumber: accountNumber ?? this.accountNumber,
+      bankName: bankName ?? this.bankName,
+      ifscCode: ifscCode ?? this.ifscCode,
+      accountHolderName: accountHolderName ?? this.accountHolderName,
+    );
+  }
+
+  // Convert to JSON for backend
+  Map<String, dynamic> toJson() {
+    return {
+      'driverName': driverName,
+      'driverId': driverId,
+      'email': email,
+      'phone': phone,
+      'address': address,
+      'vehicleType': vehicleType,
+      'vehicleNumber': vehicleNumber,
+      'rating': rating,
+      'aadharPhoto': aadharPhoto,
+      'licencePhoto': licencePhoto,
+      'rcPhoto': rcPhoto,
+      'kycStatus': kycStatus,
+      'createdAt': createdAt,
+      'accountNumber': accountNumber,
+      'bankName': bankName,
+      'ifscCode': ifscCode,
+      'accountHolderName': accountHolderName,
+    };
+  }
+
+  // Create from JSON from backend
+  factory ProfileData.fromJson(Map<String, dynamic> json) {
+    print('ProfileData.fromJson input: $json'); // Debug log
+    final driverId = json['driverId']?.toString() ?? json['driver_id']?.toString() ?? json['id']?.toString() ?? '';
+    print('Parsed driverId: "$driverId"'); // Debug log
+    return ProfileData(
+      driverName: json['driver_name'] ?? json['name'] ?? json['driverName'] ?? '',
+      driverId: driverId,
+      email: json['email'] ?? '',
+      phone: json['phone'] ?? '',
+      address: json['address'] ?? '',
+      vehicleType: json['vehicle_type'] ?? json['vehicleType'] ?? '',
+      vehicleNumber: json['vehicle_number'] ?? json['vehicleNumber'] ?? '',
+      rating: (json['rating'] ?? json['model_rating'] ?? 0.0).toDouble(),
+      aadharPhoto: json['aadhar_photo'] ?? json['aadharPhoto'] ?? '',
+      licencePhoto: json['licence_photo'] ?? json['licencePhoto'] ?? '',
+      rcPhoto: json['rc_photo'] ?? json['rcPhoto'] ?? '',
+      kycStatus: json['kyc_status'] ?? json['kycStatus'] ?? 'pending',
+      createdAt: json['created_at'] ?? json['createdAt'] ?? '',
+      accountNumber: json['account_number'] ?? json['accountNumber'],
+      bankName: json['bank_name'] ?? json['bankName'],
+      ifscCode: json['ifsc_code'] ?? json['ifscCode'],
+      accountHolderName: json['account_holder_name'] ?? json['accountHolderName'],
+    );
+  }
+}
