@@ -1,0 +1,558 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../providers/accident_provider.dart';
+import '../providers/trip_provider.dart';
+import '../providers/profile_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/notification_provider.dart';
+import '../models/accident_report.dart';
+import '../models/trip.dart';
+import '../widgets/common/app_button.dart';
+import '../widgets/common/app_card.dart';
+import '../widgets/accident_photo_widget.dart';
+import '../screens/trip_navigation_screen.dart';
+import '../theme/app_theme.dart';
+
+class ApiAccidentReportDialog extends StatefulWidget {
+  final double? currentLat;
+  final double? currentLng;
+  
+  const ApiAccidentReportDialog({
+    Key? key,
+    this.currentLat,
+    this.currentLng,
+  }) : super(key: key);
+
+  @override
+  State<ApiAccidentReportDialog> createState() => _ApiAccidentReportDialogState();
+}
+
+class _ApiAccidentReportDialogState extends State<ApiAccidentReportDialog> {
+  bool _isProcessing = false;
+  Timer? _timer;
+  int _countdown = 30;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _countdown = 30;
+    _timer?.cancel();
+    print('Starting 30-second countdown timer for accident report');
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _countdown--;
+        });
+        
+        if (_countdown <= 0) {
+          _timer?.cancel();
+          print('Timer expired - auto-rejecting accident report');
+          _autoReject();
+        }
+      }
+    });
+  }
+
+  void _autoReject() async {
+    if (!mounted) return;
+    
+    print('Auto-rejecting accident report...');
+    final accidentProvider = Provider.of<AccidentProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final driverId = authProvider.currentUser?.driverIdAsInt ?? 0;
+
+    if (driverId == 0) {
+      print('Auto-reject failed: driver ID missing');
+      return;
+    }
+
+    final success = await accidentProvider.rejectCurrentAccident(driverId: driverId);
+    
+    if (success && mounted) {
+      print('Auto-reject successful. Checking for more reports...');
+      // Show next report automatically or close if no more reports
+      if (accidentProvider.hasMoreAccidents) {
+        print('More reports available - starting timer for next report');
+        // Reset timer for next report
+        _startTimer();
+        // Refresh the dialog to show next report
+        setState(() {});
+      } else {
+        print('No more reports - closing dialog');
+        // No more reports, close dialog and return to home page
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AccidentProvider>(
+      builder: (context, accidentProvider, child) {
+        if (!accidentProvider.hasCurrentAccident) {
+          return _buildNoReportsDialog();
+        }
+
+        final accident = accidentProvider.currentAccident!;
+        return _buildAccidentDialog(accident, accidentProvider);
+      },
+    );
+  }
+
+  Widget _buildNoReportsDialog() {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: AppCard(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle_outline,
+                size: 64,
+                color: AppTheme.accentGreen,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No Accident Reports',
+                style: AppTheme.heading3,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAccidentDialog(AccidentReport accident, AccidentProvider provider) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+          minWidth: 250,
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        child: AppCard(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.all(MediaQuery.of(context).size.width < 300 ? 12 : 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.report_problem,
+                        color: AppTheme.accentOrange,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Accident Report #${accident.id}',
+                          style: AppTheme.bodyLarge.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.visible,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                        color: AppTheme.textSecondary,
+                        iconSize: 20,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Countdown Timer
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _countdown <= 5 ? AppTheme.errorRed.withOpacity(0.1) : AppTheme.accentOrange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _countdown <= 5 ? AppTheme.errorRed : AppTheme.accentOrange,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.timer,
+                          color: _countdown <= 5 ? AppTheme.errorRed : AppTheme.accentOrange,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Auto-reject in ${_countdown}s',
+                            style: AppTheme.bodyMedium.copyWith(
+                              color: _countdown <= 5 ? AppTheme.errorRed : AppTheme.accentOrange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Accident Details
+                  _buildDetailRow('Name', accident.fullname),
+                  _buildDetailRow('Phone', accident.phone),
+                  _buildDetailRow('Vehicle', accident.vehicle),
+                  _buildDetailRow('Location', accident.location),
+                  _buildDetailRow('Date', accident.createdAt),
+                  if (accident.description.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Description',
+                      style: AppTheme.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      accident.description,
+                      style: AppTheme.bodyMedium,
+                    ),
+                  ],
+                  if (accident.photos.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    AccidentPhotoWidget(
+                      photoUrls: accident.photos,
+                      height: 100,
+                      width: 100,
+                      showTitle: true,
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  // Action Buttons
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      if (constraints.maxWidth < 320) {
+                        // For very small screens, stack buttons vertically
+                        return Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: AppButton(
+                                text: 'Reject',
+                                onPressed: _isProcessing ? null : () => _handleReject(provider),
+                                variant: AppButtonVariant.danger,
+                                icon: Icons.close,
+                                size: AppButtonSize.medium,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: AppButton(
+                                text: 'Accept',
+                                onPressed: _isProcessing ? null : () => _handleAccept(provider),
+                                variant: AppButtonVariant.secondary,
+                                icon: Icons.check,
+                                size: AppButtonSize.medium,
+                              ),
+                            ),
+                          ],
+                        );
+                      } else {
+                        // For larger screens, use horizontal layout
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: AppButton(
+                                text: 'Reject',
+                                onPressed: _isProcessing ? null : () => _handleReject(provider),
+                                variant: AppButtonVariant.danger,
+                                icon: Icons.close,
+                                size: AppButtonSize.medium,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: AppButton(
+                                text: 'Accept',
+                                onPressed: _isProcessing ? null : () => _handleAccept(provider),
+                                variant: AppButtonVariant.secondary,
+                                icon: Icons.check,
+                                size: AppButtonSize.medium,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 70,
+            child: Text(
+              '$label:',
+              style: AppTheme.bodySmall.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTheme.bodySmall,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleAccept(AccidentProvider provider) async {
+    // Cancel timer since user took action
+    _timer?.cancel();
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      // Check if driver already has an accepted accident
+      if (provider.hasAcceptedAccident) {
+        _showErrorDialog('Complete or cancel accepted report first');
+        return;
+      }
+      
+      // Get driver information from auth provider
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final driverId = authProvider.currentUser?.driverIdAsInt ?? 1;
+      final vehicleNumber = authProvider.currentUser?.vehicleNumber ?? 'DL01AB1234';
+      
+      print('=== ACCEPT ACCIDENT DEBUG ===');
+      print('Driver ID: $driverId');
+      print('Vehicle Number: $vehicleNumber');
+      print('Accident ID: ${provider.currentAccident?.id}');
+      
+      final success = await provider.acceptCurrentAccident(
+        driverId: driverId,
+        vehicleNumber: vehicleNumber,
+        showNext: false,
+        currentLat: widget.currentLat,
+        currentLng: widget.currentLng,
+      );
+      
+      if (success) {
+        // Add notification for accident acceptance
+        final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final driverId = authProvider.currentUser?.driverId ?? 'unknown';
+        final accident = provider.currentAccident!;
+        notificationProvider.addAccidentAcceptedNotification(
+          accidentId: accident.id,
+          location: accident.location,
+          clientName: accident.fullname,
+          driverId: driverId,
+        );
+        
+        // Wait a moment for map to open before closing dialog
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Close accident dialog and redirect to home screen
+        Navigator.of(context).pop();
+        
+        // The accepted accident will be stored in AccidentProvider
+        // and displayed on the home screen with continue/cancel buttons
+        
+        // Refresh the pending count in the background
+        provider.refreshPendingCount(driverId: int.tryParse(driverId));
+      } else {
+        _showErrorDialog('Failed to accept accident report');
+      }
+    } catch (e) {
+      _showErrorDialog('Error: $e');
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  Future<Trip?> _createTripFromAccident(AccidentReport accident) async {
+    try {
+      final profileProvider = Provider.of<ProfileProvider>(context, listen: false);
+      final tripProvider = Provider.of<TripProvider>(context, listen: false);
+      
+      if (profileProvider.profile.driverId.isNotEmpty) {
+        final driverId = 1; // Using driver ID = 1 for testing
+        
+        // Create a trip with the accident details
+        final tripData = {
+          'driver_id': driverId,
+          'user_id': 1, // Default user ID for accident reports
+          'start_location': accident.location,
+          'end_location': accident.location, // Same location for accident response
+          'fare_amount': 500.0, // Default fare for accident response
+          'status': 'ongoing',
+          'start_time': DateTime.now().toIso8601String(),
+        };
+        
+        // Accept the trip (this will create it in the database)
+        await tripProvider.acceptTrip(
+          accident.id, // Use accident ID as trip ID for now
+          driverId,
+        );
+        
+        // Refresh ongoing trips
+        await tripProvider.loadOngoingTrips(driverId);
+        
+        // Return the created trip
+        final ongoingTrips = tripProvider.ongoingTrips;
+        if (ongoingTrips.isNotEmpty) {
+          return ongoingTrips.first;
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error creating trip from accident: $e');
+      return null;
+    }
+  }
+
+  Future<void> _handleReject(AccidentProvider provider) async {
+    // Cancel timer since user took action
+    _timer?.cancel();
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final driverId = authProvider.currentUser?.driverIdAsInt ?? 0;
+
+      if (driverId == 0) {
+        _showErrorSnackBar('Driver information missing. Please log in again.');
+        return;
+      }
+
+      final success = await provider.rejectCurrentAccident(driverId: driverId);
+      
+      if (success) {
+        // Show next report automatically or close if no more reports
+        if (provider.hasMoreAccidents) {
+          // Show next report immediately (no timer for rejected reports)
+          setState(() {});
+        } else {
+          // No more reports, close dialog and return to home page
+          Navigator.of(context).pop();
+        }
+      } else {
+        _showErrorSnackBar('Failed to reject accident report');
+      }
+    } catch (e) {
+      _showErrorSnackBar('Error: $e');
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.errorRed,
+      ),
+    );
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: AppTheme.errorRed,
+              size: 24,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Error',
+              style: GoogleFonts.roboto(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.errorRed,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: GoogleFonts.roboto(
+            fontSize: 16,
+            color: Colors.black87,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'OK',
+              style: GoogleFonts.roboto(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.primaryBlue,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+}
